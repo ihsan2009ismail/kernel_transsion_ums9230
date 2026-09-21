@@ -52,7 +52,12 @@
 #define UP_THRESHOLD        9/10
 #define FREQ_KHZ            1000
 
-#define T606_GPLL_FREQ      650000000
+/* susfs-testing: T606/612 GPLL raised 650 -> 750 MHz (OC, T616 bin-equivalent).
+ * The GPLL PLL defaults to 750 MHz and the T616 bin ships this exact
+ * freq/voltage combo (800 mV), so this stays within the certified
+ * silicon envelope. 850 MHz (T619) is NOT used for the LP bin.
+ */
+#define T606_GPLL_FREQ      750000000
 #define T616_GPLL_FREQ      750000000
 //#define DEFAULT_GPLL_FREQ   800000000
 
