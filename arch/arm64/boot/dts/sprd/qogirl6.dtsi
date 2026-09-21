@@ -806,7 +806,7 @@
 					>;
 
 				/*sprd,qos = <&gpu_qos>;*/
-				sprd,dvfs-default = <0>;
+				sprd,dvfs-default = <2>;
 				sprd,dvfs-scene-extreme = <3>;
 				sprd,dvfs-scene-high = <2>;
 				sprd,dvfs-scene-medium = <1>;

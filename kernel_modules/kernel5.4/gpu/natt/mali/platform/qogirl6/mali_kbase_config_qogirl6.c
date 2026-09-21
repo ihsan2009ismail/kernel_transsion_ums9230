@@ -59,6 +59,16 @@
 #define GPU_768M_FREQ       768000000
 #define GPU_850M_FREQ       850000000
 
+/*
+ * susfs-testing: default DVFS floor for normal (non-boost) operation.
+ * Index into the GPU freq_list parsed from "sprd,dvfs-lists":
+ *   0 = 384 MHz   1 = 512 MHz   2 = 614.4 MHz   3 = 768 MHz   4 = 850 MHz
+ * Raising it from 0 to 2 keeps the GPU at >= 614 MHz whenever it is
+ * active, giving a noticeable smoothing/performance increase at the cost
+ * of higher power draw. Set back to 0 for stock behaviour.
+ */
+#define GPU_DVFS_BOOST_MIN_INDEX	2
+
 struct gpu_qos_config {
 	u8 arqos;
 	u8 awqos;
@@ -991,7 +1001,7 @@ void kbase_platform_modify_target_freq(struct device *dev, unsigned long *target
 	case 0:
 	default:
 		freq_max = &gpu_dvfs_ctx.freq_list[gpu_dvfs_ctx.freq_list_len-1];
-		freq_min = &gpu_dvfs_ctx.freq_list[0];
+		freq_min = &gpu_dvfs_ctx.freq_list[GPU_DVFS_BOOST_MIN_INDEX];
 		break;
 	}
 
