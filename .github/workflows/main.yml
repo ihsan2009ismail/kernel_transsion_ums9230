@@ -90,6 +90,11 @@ jobs:
       #  - CONFIG_MALI_CSF_SUPPORT=y + MALI_USE_CSF=1 -> UMS9230 GPU is Mali-G57 (Valhall/CSF)
       #  - CONFIG_MALI_MIDGARD_DVFS=y / CONFIG_MALI_DEVFREQ=n -> SPRD topdvfs platform
       #  - CONFIG_MALI_GATOR_SUPPORT=n -> no external gator profiler dependency
+      #  - MALI_JIT_PRESSURE_LIMIT_BASE=0 -> mandatory for CSF (MALI_USE_CSF=1) builds:
+      #    the JIT pressure-limit code path (mali_kbase_mem.c) references JM-only UAPI
+      #    flags (BASEP_MEM_PERFORM_JIT_TRIM, BASE_JIT_ALLOC_HEAP_INFO_IS_SIZE,
+      #    KBASE_REG_TILER_ALIGN_TOP) that do not exist in the CSF build, and Kbuild
+      #    defaults it to 1 (Kbuild:80). The vendor's CSF variant builds with it 0.
       #
       # Kernel .config requirements (all already =y in bg6_defconfig): ANDROID,
       # DMA_SHARED_BUFFER, PM_DEVFREQ, DEVFREQ_THERMAL, DEVFREQ_GOV_SIMPLE_ONDEMAND,
@@ -107,7 +112,8 @@ jobs:
             MALI_USE_CSF=1 \
             CONFIG_MALI_MIDGARD_DVFS=y \
             CONFIG_MALI_DEVFREQ=n \
-            CONFIG_MALI_GATOR_SUPPORT=n
+            CONFIG_MALI_GATOR_SUPPORT=n \
+            MALI_JIT_PRESSURE_LIMIT_BASE=0
 
       - name: Upload build output
         uses: actions/upload-artifact@v4
