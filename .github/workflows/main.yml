@@ -3,7 +3,7 @@ name: Build Kernel
 on:
   workflow_dispatch:
   push:
-    branches: [ upstream-302, master ]
+    branches: [ upstream-302, master, susfs-testing ]
 
 jobs:
   build:
@@ -80,9 +80,45 @@ jobs:
         run: |
           make $MAKE_ARGS -j$(nproc) Image
 
+      # Mali GPU driver (mali_kbase.ko) is NOT part of the in-tree kernel build:
+      # it lives in kernel_modules/.../gpu/natt/mali and is built out-of-tree via
+      # its own Makefile against the just-built O=out tree. It carries the GPU
+      # OC/DVFS changes (T606_GPLL_FREQ in platform/qogirl6).
+      #
+      # Config notes:
+      #  - CONFIG_MALI_PLATFORM_NAME=qogirl6  -> platform/qogirl6 + -DQOGIRL6_GPU_POLLING
+      #  - CONFIG_MALI_CSF_SUPPORT=y + MALI_USE_CSF=1 -> UMS9230 GPU is Mali-G57 (Valhall/CSF)
+      #  - CONFIG_MALI_MIDGARD_DVFS=y / CONFIG_MALI_DEVFREQ=n -> SPRD topdvfs platform
+      #  - CONFIG_MALI_GATOR_SUPPORT=n -> no external gator profiler dependency
+      #
+      # Kernel .config requirements (all already =y in bg6_defconfig): ANDROID,
+      # DMA_SHARED_BUFFER, PM_DEVFREQ, DEVFREQ_THERMAL, DEVFREQ_GOV_SIMPLE_ONDEMAND,
+      # FW_LOADER, SYNC_FILE. GPU_TRACEPOINTS is not defined in this tree, so the
+      # Kbuild guard sees it as unset rather than 'n' and passes.
+      - name: Build Mali GPU module (mali_kbase.ko)
+        run: |
+          make $MAKE_ARGS modules_prepare
+          make -C kernel_modules/kernel5.4/gpu/natt/mali \
+            KDIR=$PWD/out \
+            LLVM=1 LLVM_IAS=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
+            CONFIG_MALI_MIDGARD=m \
+            CONFIG_MALI_PLATFORM_NAME=qogirl6 \
+            CONFIG_MALI_CSF_SUPPORT=y \
+            MALI_USE_CSF=1 \
+            CONFIG_MALI_MIDGARD_DVFS=y \
+            CONFIG_MALI_DEVFREQ=n \
+            CONFIG_MALI_GATOR_SUPPORT=n
+
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: kernel-Image-${{ github.sha }}
           path: out/arch/arm64/boot/Image
+          if-no-files-found: warn
+
+      - name: Upload mali_kbase module
+        uses: actions/upload-artifact@v4
+        with:
+          name: mali_kbase-${{ github.sha }}
+          path: kernel_modules/kernel5.4/gpu/natt/mali/mali_kbase.ko
           if-no-files-found: warn
