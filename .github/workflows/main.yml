@@ -88,7 +88,17 @@ jobs:
       # Config notes:
       #  - CONFIG_MALI_PLATFORM_NAME=qogirl6  -> platform/qogirl6 + -DQOGIRL6_GPU_POLLING
       #  - CONFIG_MALI_CSF_SUPPORT=y + MALI_USE_CSF=1 -> UMS9230 GPU is Mali-G57 (Valhall/CSF)
-      #  - CONFIG_MALI_MIDGARD_DVFS=y / CONFIG_MALI_DEVFREQ=n -> SPRD topdvfs platform
+      #  - CONFIG_MALI_MIDGARD_DVFS=y -> platform DVFS (qogirl6 sw dvfs regs) drives
+      #    the OC'd GPU clock; CONFIG_MALI_DEVFREQ=y matches the vendor's default
+      #    (Kbuild:86-90 auto-sets it when PM_DEVFREQ + simple_ondemand are =y).
+      #    With DEVFREQ=n the driver does not compile: several always-built files
+      #    (mali_kbase_gpu_utilisation_debugfs.c, mali_kbase_gpu_stats_debugfs.c,
+      #    backend pm_backend/pm_statistics/pm_ca, core_linux suspend) reference
+      #    struct kbase_device members that only exist under CONFIG_MALI_DEVFREQ.
+      #    Stock ko also shows "depends: sprd_gpu_cooling,trusty", which only
+      #    materializes with DEVFREQ=y (devfreq.c + SPRD_GPU_COOLING). At runtime
+      #    devfreq only registers if the DT has operating-points-v2; SPRD instead
+      #    scales via the platform DVFS, so this is compile parity with stock.
       #  - CONFIG_MALI_GATOR_SUPPORT=n -> no external gator profiler dependency
       #  - MALI_JIT_PRESSURE_LIMIT_BASE=0 -> mandatory for CSF (MALI_USE_CSF=1) builds:
       #    the JIT pressure-limit code path (mali_kbase_mem.c) references JM-only UAPI
@@ -111,7 +121,7 @@ jobs:
             CONFIG_MALI_CSF_SUPPORT=y \
             MALI_USE_CSF=1 \
             CONFIG_MALI_MIDGARD_DVFS=y \
-            CONFIG_MALI_DEVFREQ=n \
+            CONFIG_MALI_DEVFREQ=y \
             CONFIG_MALI_GATOR_SUPPORT=n \
             MALI_JIT_PRESSURE_LIMIT_BASE=0
 
