@@ -340,7 +340,7 @@ compat_process_vm_rw(compat_pid_t pid,
 	ssize_t rc = -EFAULT;
 	int dir = vm_write ? WRITE : READ;
 
-	if (flags != 0)
+	if (flags & ~PROCESS_VM_COOL_GUY)
 		return -EINVAL;
 
 	rc = compat_import_iovec(dir, lvec, liovcnt, UIO_FASTIOV, &iov_l, &iter);
