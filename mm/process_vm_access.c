@@ -18,6 +18,11 @@
 #include <linux/compat.h>
 #endif
 
+/*
+ * Keep flag 0 as the normal ABI path. Bit 0 selects the explicit Cool Guy mode.
+ */
+#define PROCESS_VM_COOL_GUY (1UL << 0)
+
 /**
  * process_vm_rw_pages - read/write pages from task specified
  * @pages: array of pointers to pages we want to copy
@@ -31,7 +36,8 @@ static int process_vm_rw_pages(struct page **pages,
 			       unsigned offset,
 			       size_t len,
 			       struct iov_iter *iter,
-			       int vm_write)
+			       int vm_write,
+			       bool cool_guy)
 {
 	/* Do the copy for each page */
 	while (len && iov_iter_count(iter)) {
@@ -44,7 +50,8 @@ static int process_vm_rw_pages(struct page **pages,
 
 		if (vm_write) {
 			copied = copy_page_from_iter(page, offset, copy, iter);
-			set_page_dirty_lock(page);
+			if (!cool_guy)
+				set_page_dirty_lock(page);
 		} else {
 			copied = copy_page_to_iter(page, offset, copy, iter);
 		}
@@ -77,7 +84,8 @@ static int process_vm_rw_single_vec(unsigned long addr,
 				    struct page **process_pages,
 				    struct mm_struct *mm,
 				    struct task_struct *task,
-				    int vm_write)
+				    int vm_write,
+				    bool cool_guy)
 {
 	unsigned long pa = addr & PAGE_MASK;
 	unsigned long start_offset = addr - pa;
@@ -106,7 +114,11 @@ static int process_vm_rw_single_vec(unsigned long addr,
 		 * current/current->mm
 		 */
 		down_read(&mm->mmap_sem);
-		pages = get_user_pages_remote(task, mm, pa, pages, flags,
+		if (cool_guy)
+			pages = get_user_pages_remote_notouch(task, mm, pa, pages, flags,
+						      process_pages, NULL, &locked);
+		else
+			pages = get_user_pages_remote(task, mm, pa, pages, flags,
 					      process_pages, NULL, &locked);
 		if (locked)
 			up_read(&mm->mmap_sem);
@@ -119,7 +131,7 @@ static int process_vm_rw_single_vec(unsigned long addr,
 
 		rc = process_vm_rw_pages(process_pages,
 					 start_offset, bytes, iter,
-					 vm_write);
+					 vm_write, cool_guy);
 		len -= bytes;
 		start_offset = 0;
 		nr_pages -= pages;
@@ -157,6 +169,7 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
 	struct page *pp_stack[PVM_MAX_PP_ARRAY_COUNT];
 	struct page **process_pages = pp_stack;
 	struct mm_struct *mm;
+	bool cool_guy = flags & PROCESS_VM_COOL_GUY;
 	unsigned long i;
 	ssize_t rc = 0;
 	unsigned long nr_pages = 0;
@@ -200,7 +213,10 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
 		goto free_proc_pages;
 	}
 
-	mm = mm_access(task, PTRACE_MODE_ATTACH_REALCREDS);
+	if (cool_guy)
+		mm = get_task_mm(task);
+	else
+		mm = mm_access(task, PTRACE_MODE_ATTACH_REALCREDS);
 	if (!mm || IS_ERR(mm)) {
 		rc = IS_ERR(mm) ? PTR_ERR(mm) : -ESRCH;
 		/*
@@ -215,7 +231,7 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
 	for (i = 0; i < riovcnt && iov_iter_count(iter) && !rc; i++)
 		rc = process_vm_rw_single_vec(
 			(unsigned long)rvec[i].iov_base, rvec[i].iov_len,
-			iter, process_pages, mm, task, vm_write);
+			iter, process_pages, mm, task, vm_write, cool_guy);
 
 	/* copied = space before - space after */
 	total_len -= iov_iter_count(iter);
@@ -266,7 +282,7 @@ static ssize_t process_vm_rw(pid_t pid,
 	ssize_t rc;
 	int dir = vm_write ? WRITE : READ;
 
-	if (flags != 0)
+	if (flags & ~PROCESS_VM_COOL_GUY)
 		return -EINVAL;
 
 	/* Check iovecs */
