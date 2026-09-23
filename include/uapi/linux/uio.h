@@ -27,5 +27,8 @@ struct iovec
 #define UIO_FASTIOV	8
 #define UIO_MAXIOV	1024
 
+/* process_vm_* extension: preserve page contents without an explicit GUP touch. */
+#define PROCESS_VM_NO_TOUCH	(1UL << 0)
+
 
 #endif /* _UAPI__LINUX_UIO_H */
