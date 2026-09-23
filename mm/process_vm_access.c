@@ -120,7 +120,8 @@ static int process_vm_rw_single_vec(unsigned long addr,
 				return -EPERM;
 
 			vma_pages = (vma->vm_end - pa + PAGE_SIZE - 1) >> PAGE_SHIFT;
-			pages = min_t(unsigned long, pages, vma_pages);
+			if (vma_pages < (unsigned long)pages)
+				pages = (int)vma_pages;
 		}
 
 		/*
