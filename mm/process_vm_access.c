@@ -46,7 +46,7 @@ static int process_vm_rw_pages(struct page **pages,
 
 		if (vm_write) {
 			copied = copy_page_from_iter(page, offset, copy, iter);
-			if (!cool_guy)
+			if (!no_touch_mode)
 				set_page_dirty_lock(page);
 		} else {
 			copied = copy_page_to_iter(page, offset, copy, iter);
@@ -105,9 +105,17 @@ static int process_vm_rw_single_vec(unsigned long addr,
 		size_t bytes;
 
 		/*
+		 * Get the pages we're interested in.  We must
+		 * access remotely because task/mm might not
+		 * current/current->mm
+		 */
+		down_read(&mm->mmap_sem);
+
+		/*
 		 * No-touch writes deliberately operate only on private anonymous
 		 * VMAs. This keeps the no-dirtying rule correct: file-backed and
 		 * shared mappings retain the normal process_vm_writev semantics.
+		 * The VMA lookup must be protected by mmap_sem.
 		 */
 		if (no_touch_mode && vm_write) {
 			struct vm_area_struct *vma;
@@ -116,20 +124,15 @@ static int process_vm_rw_single_vec(unsigned long addr,
 			vma = find_vma(mm, pa);
 			if (!vma || pa < vma->vm_start ||
 			    !vma_is_anonymous(vma) ||
-			    (vma->vm_flags & VM_SHARED))
+			    (vma->vm_flags & VM_SHARED)) {
+				up_read(&mm->mmap_sem);
 				return -EPERM;
+			}
 
 			vma_pages = (vma->vm_end - pa + PAGE_SIZE - 1) >> PAGE_SHIFT;
 			if (vma_pages < (unsigned long)pages)
 				pages = (int)vma_pages;
 		}
-
-		/*
-		 * Get the pages we're interested in.  We must
-		 * access remotely because task/mm might not
-		 * current/current->mm
-		 */
-		down_read(&mm->mmap_sem);
 		if (no_touch_mode)
 			pages = get_user_pages_remote_notouch(task, mm, pa, pages, flags,
 						      process_pages, NULL, &locked);
