@@ -18,12 +18,6 @@
 #include <linux/compat.h>
 #endif
 
-/*
- * Bit 0 selects the extended no-touch access mode.  The normal ABI remains
- * unchanged when flags == 0.
- */
-#define PROCESS_VM_NO_TOUCH (1UL << 0)
-
 /**
  * process_vm_rw_pages - read/write pages from task specified
  * @pages: array of pointers to pages we want to copy
@@ -31,6 +25,7 @@
  * @len: number of bytes to copy
  * @iter: where to copy to/from locally
  * @vm_write: 0 means copy from, 1 means copy to
+ * @no_touch_mode: omit FOLL_TOUCH; write mode is limited to private anonymous VMAs
  * Returns 0 on success, error code otherwise
  */
 static int process_vm_rw_pages(struct page **pages,
@@ -173,8 +168,11 @@ static int process_vm_rw_single_vec(unsigned long addr,
  * @iter: where to copy to/from locally
  * @rvec: iovec array specifying where to copy to/from in the other process
  * @riovcnt: size of rvec array
- * @flags: currently unused
+ * @flags: PROCESS_VM_NO_TOUCH selects the no-touch mode
  * @vm_write: 0 if reading from other process, 1 if writing to other process
+ *
+ * The no-touch mode does not bypass ptrace/LSM authorization or syscall-level
+ * controls such as seccomp and tracing.
  *
  * Returns the number of bytes read/written or error code. May
  *  return less bytes than expected if an error occurs during the copying
