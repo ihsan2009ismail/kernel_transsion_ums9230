@@ -1222,6 +1222,24 @@ long get_user_pages_remote(struct task_struct *tsk, struct mm_struct *mm,
 }
 EXPORT_SYMBOL(get_user_pages_remote);
 
+/* Remote GUP variant that deliberately omits FOLL_TOUCH. */
+long get_user_pages_remote_notouch(struct task_struct *tsk,
+				   struct mm_struct *mm,
+				   unsigned long start,
+				   unsigned long nr_pages,
+				   unsigned int gup_flags,
+				   struct page **pages,
+				   struct vm_area_struct **vmas,
+				   int *locked)
+{
+	if (WARN_ON_ONCE(gup_flags & FOLL_LONGTERM))
+		return -EINVAL;
+
+	return __get_user_pages_locked(tsk, mm, start, nr_pages, pages, vmas,
+					       locked, gup_flags | FOLL_REMOTE);
+}
+EXPORT_SYMBOL(get_user_pages_remote_notouch);
+
 /**
  * populate_vma_page_range() -  populate a range of pages in the vma.
  * @vma:   target vma
