@@ -19,9 +19,10 @@
 #endif
 
 /*
- * Keep flag 0 as the normal ABI path. Bit 0 selects the explicit Cool Guy mode.
+ * Bit 0 selects the extended no-touch access mode.  The normal ABI remains
+ * unchanged when flags == 0.
  */
-#define PROCESS_VM_COOL_GUY (1UL << 0)
+#define PROCESS_VM_NO_TOUCH (1UL << 0)
 
 /**
  * process_vm_rw_pages - read/write pages from task specified
@@ -37,7 +38,7 @@ static int process_vm_rw_pages(struct page **pages,
 			       size_t len,
 			       struct iov_iter *iter,
 			       int vm_write,
-			       bool cool_guy)
+			       bool no_touch_mode)
 {
 	/* Do the copy for each page */
 	while (len && iov_iter_count(iter)) {
@@ -85,7 +86,7 @@ static int process_vm_rw_single_vec(unsigned long addr,
 				    struct mm_struct *mm,
 				    struct task_struct *task,
 				    int vm_write,
-				    bool cool_guy)
+				    bool no_touch_mode)
 {
 	unsigned long pa = addr & PAGE_MASK;
 	unsigned long start_offset = addr - pa;
@@ -109,12 +110,31 @@ static int process_vm_rw_single_vec(unsigned long addr,
 		size_t bytes;
 
 		/*
+		 * No-touch writes deliberately operate only on private anonymous
+		 * VMAs. This keeps the no-dirtying rule correct: file-backed and
+		 * shared mappings retain the normal process_vm_writev semantics.
+		 */
+		if (no_touch_mode && vm_write) {
+			struct vm_area_struct *vma;
+			unsigned long vma_pages;
+
+			vma = find_vma(mm, pa);
+			if (!vma || pa < vma->vm_start ||
+			    !vma_is_anonymous(vma) ||
+			    (vma->vm_flags & VM_SHARED))
+				return -EPERM;
+
+			vma_pages = (vma->vm_end - pa + PAGE_SIZE - 1) >> PAGE_SHIFT;
+			pages = min_t(unsigned long, pages, vma_pages);
+		}
+
+		/*
 		 * Get the pages we're interested in.  We must
 		 * access remotely because task/mm might not
 		 * current/current->mm
 		 */
 		down_read(&mm->mmap_sem);
-		if (cool_guy)
+		if (no_touch_mode)
 			pages = get_user_pages_remote_notouch(task, mm, pa, pages, flags,
 						      process_pages, NULL, &locked);
 		else
@@ -131,7 +151,7 @@ static int process_vm_rw_single_vec(unsigned long addr,
 
 		rc = process_vm_rw_pages(process_pages,
 					 start_offset, bytes, iter,
-					 vm_write, cool_guy);
+					 vm_write, no_touch_mode);
 		len -= bytes;
 		start_offset = 0;
 		nr_pages -= pages;
@@ -169,7 +189,7 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
 	struct page *pp_stack[PVM_MAX_PP_ARRAY_COUNT];
 	struct page **process_pages = pp_stack;
 	struct mm_struct *mm;
-	bool cool_guy = flags & PROCESS_VM_COOL_GUY;
+	bool no_touch_mode = flags & PROCESS_VM_NO_TOUCH;
 	unsigned long i;
 	ssize_t rc = 0;
 	unsigned long nr_pages = 0;
@@ -213,10 +233,8 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
 		goto free_proc_pages;
 	}
 
-	if (cool_guy)
-		mm = get_task_mm(task);
-	else
-		mm = mm_access(task, PTRACE_MODE_ATTACH_REALCREDS);
+	/* Preserve the normal ptrace/LSM authorization for every mode. */
+	mm = mm_access(task, PTRACE_MODE_ATTACH_REALCREDS);
 	if (!mm || IS_ERR(mm)) {
 		rc = IS_ERR(mm) ? PTR_ERR(mm) : -ESRCH;
 		/*
@@ -231,7 +249,7 @@ static ssize_t process_vm_rw_core(pid_t pid, struct iov_iter *iter,
 	for (i = 0; i < riovcnt && iov_iter_count(iter) && !rc; i++)
 		rc = process_vm_rw_single_vec(
 			(unsigned long)rvec[i].iov_base, rvec[i].iov_len,
-			iter, process_pages, mm, task, vm_write, cool_guy);
+			iter, process_pages, mm, task, vm_write, no_touch_mode);
 
 	/* copied = space before - space after */
 	total_len -= iov_iter_count(iter);
@@ -282,7 +300,7 @@ static ssize_t process_vm_rw(pid_t pid,
 	ssize_t rc;
 	int dir = vm_write ? WRITE : READ;
 
-	if (flags & ~PROCESS_VM_COOL_GUY)
+	if (flags & ~PROCESS_VM_NO_TOUCH)
 		return -EINVAL;
 
 	/* Check iovecs */
@@ -340,7 +358,7 @@ compat_process_vm_rw(compat_pid_t pid,
 	ssize_t rc = -EFAULT;
 	int dir = vm_write ? WRITE : READ;
 
-	if (flags & ~PROCESS_VM_COOL_GUY)
+	if (flags & ~PROCESS_VM_NO_TOUCH)
 		return -EINVAL;
 
 	rc = compat_import_iovec(dir, lvec, liovcnt, UIO_FASTIOV, &iov_l, &iter);
